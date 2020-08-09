@@ -15,13 +15,27 @@ async fn main() {
 }
 
 async fn process(socket: TcpStream) {
-    // Connection defined by mini-redis lets us read/write redis frames instead of bytes.
+    use mini_redis::Command::{self, Get, Set};
+    use std::collections::HashMap;
+    let mut db = HashMap::new();
     let mut connection = Connection::new(socket);
-    if let Some(frame) = connection.read_frame().await.unwrap() {
-        println!("got: {:?}", frame);
-
-        //respond with error
-        let response = Frame::Error("unimpl".to_string());
+    while let Some(frame) = connection.read_frame().await.unwrap() {
+        let response = match Command::from_frame(frame).unwrap() {
+            Set(cmd) => {
+                println!("{:?}", cmd);
+                db.insert(cmd.key().to_string(), cmd.value().clone());
+                Frame::Simple("OK".to_string())
+            }
+            Get(cmd) => {
+                println!("{:?}", cmd);
+                if let Some(value) = db.get(cmd.key()) {
+                    Frame::Bulk(value.clone())
+                } else {
+                    Frame::Null
+                }
+            }
+            cmd => panic!("unimpl {:?}", cmd),
+        };
         connection.write_frame(&response).await.unwrap();
     }
 }
